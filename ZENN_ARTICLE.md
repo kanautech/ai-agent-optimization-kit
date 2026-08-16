@@ -1,72 +1,82 @@
 ---
-title: "Codex・Cursor・Antigravity時代のTDD：AIエージェントを縛らず過剰検証を止める設計"
-emoji: "🧭"
+title: "Claude CodeのHooksで実装するTDDガバナンス：自律性を保ち、過剰検証を止める"
+emoji: "🪝"
 type: "tech"
-topics: ["codex", "cursor", "ai", "tdd", "agent"]
+topics: ["claudecode", "anthropic", "tdd", "agent", "testing"]
 published: false
 ---
 
-# Codex・Cursor・Antigravity時代のTDD：AIエージェントを縛らず過剰検証を止める設計
+# Claude CodeのHooksで実装するTDDガバナンス：自律性を保ち、過剰検証を止める
 
-AIコーディングの論点は、もはや「コード補完が速いか」ではない。Codex、Cursor、Google Antigravityなどのエージェント型開発環境では、コード編集だけでなく、テスト、ターミナル、ブラウザ、バックグラウンド作業までが一つの自律タスクに統合されている [1] [2] [3]。そのため、設計すべき対象はモデル単体ではなく、**エージェントがどの権限で、どの終了条件まで、どの検証を実行するか**という実行系全体である。
+AIコーディングエージェントを扱うとき、ルールをプロンプトに書けば統制できるという前提は脆い。特にClaude Codeは、プロジェクト内のファイルを読み書きし、Bashコマンドを実行し、テストやブラウザ操作までを自律タスクとして進められる。自然言語の依頼だけに依存するなら、どのテストを走らせるか、いつ止めるか、何を保護するかはLLMの判断に委ねられる。
 
-本稿は、AIエージェントの知能を過剰な手順指示で窒息させず、同時にNFR（非機能要件）の過剰検証を防ぐための実装可能なガードレールを整理する。
+Claude Codeには、この問題を解く公式の手段がある。**Hooks**である。HooksはClaude Codeのライフサイクル上の特定時点でユーザー定義のコマンドを実行し、LLMの任意判断ではなく決定論的に検証・ブロック・記録を行える [1]。
 
-## 製品を混同しない
+本稿では、Kanau Techが公開した [Claude Code TDD Guardrails Kit](https://github.com/kanautech/ai-agent-optimization-kit) の設計を通じて、Claude Codeの自律性とTDDガバナンスを両立させる方法を説明する。
 
-Codex、Cursor、Google Antigravityは同じものではない。CodexはOpenAIが提供するコーディングエージェントで、ChatGPT、IDE、CLIで利用できる [1]。Cursorはエージェント型のコーディング環境で、DesktopおよびCLIを提供する [2]。Google Antigravityは、IDE、CLI、SDK、複数ローカルエージェントの管理を備えるエージェント型開発プラットフォームである [3] [4]。
+## プロンプトとHooksを混同しない
 
-この違いは重要である。指示ファイル、実行権限、利用モデル、並列実行、ネットワークアクセス、プロセス管理は製品ごとに異なる。したがって「ある製品・モデルが必ず過剰にテストする」と断定するのは技術的に雑である。正しい主張は、**高い自律性と広い実行権限を持つエージェントには、プロジェクト文脈に応じた検証境界が必要である**ということだ。
-
-## 問題の正体：テスト量ではなく検証の意思決定が未定義
-
-AIエージェントに「この機能を実装して、テストもして」と指示すると、どこまでをテストするかは、指示・リポジトリ文脈・利用可能なツール・モデルの推論に委ねられる。そこで以下の境界が明示されていなければ、テストの拡張は合理的に見えても、プロジェクトには不合理になり得る。
-
-| 未定義の境界 | 起き得る挙動 | 本来決めるべきこと |
+| 層 | Claude Codeでの実装 | 向いている判断 |
 |---|---|---|
-| 変更の影響範囲 | 無関係なE2Eや統合テストへ拡大。 | 変更したモジュール・外部境界・ユーザーフロー。 |
-| NFRの対象 | 負荷・レース・性能テストを実装ループで開始。 | 対象環境、ワークロード、合格基準、実施時期。 |
-| 失敗時の終了条件 | 同一障害の修正・再試行を繰り返す。 | リトライ回数、停止条件、エスカレーション先。 |
-| 並列性 | ワーカー、ポート、DBデータの競合。 | 並列化を許可するタスクと資源予算。 |
+| Intent Layer | `CLAUDE.md` | 目的、変更範囲、完了条件、テスト方針。 |
+| Safety Layer | `.claude/settings.json` と `PreToolUse` Hook | 危険なコマンド、保護対象、NFRの開始条件。 |
+| Feedback Layer | `PostToolUse` / `Stop` / `Notification` Hook | 実行証跡、失敗根拠、終了通知、後始末。 |
 
-## 「引き算」はルール削除ではなく、判断境界の最小化である
+`CLAUDE.md` は「何を達成したいか」をClaudeに伝える。Hooksは「何を実行させないか」「何を必ず記録するか」を担保する。両者を混ぜると、重要な安全境界まで確率的な指示追従へ委ねることになる。
 
-AIエージェント向けの指示を短くすること自体には価値がない。価値があるのは、重複・矛盾・抽象的な命令を減らし、エージェントが守るべき重要な境界を明確にすることである。
+## NFRを実装ループから分離する
 
-悪い指示は「高品質に、網羅的に、すべてテストして」である。これでは品質の定義もテスト範囲も終了条件もない。良い指示は次のように具体的である。
+次のような依頼は判断境界が足りない。
 
-```markdown
-- Run the smallest test directly related to the change first.
-- Do not start load, stress, race, security, or full E2E tests unless a human supplies the target, acceptance criteria, and budget.
-- After three identical failures, stop, preserve evidence, and request a decision.
-- Run sequentially by default; parallelize only independent tests with an explicit resource budget.
+> 「この機能を実装して、十分にテストして。」
+
+十分とは何か。単体テストか、統合テストか、ブラウザE2Eか、負荷試験か。MVPのローカル環境でレースコンディションまで検証するのか。合格基準は何か。結果を誰が解釈するのか。
+
+NFRは機能実装の自動的な副産物ではない。性能、負荷、ストレス、レース、セキュリティ検証を始めるには、少なくとも次の5項目が必要である。
+
+1. 対象環境。
+2. ワークロードまたは攻撃シナリオ。
+3. 合格基準。
+4. 時間・並列度・インフラの資源予算。
+5. 結果を解釈し次の判断を行う人間の責任者。
+
+## `PreToolUse` Hookで実行前に止める
+
+Claude Codeの `PreToolUse` Hookは、Bash、Edit、Writeなどの実行前にコマンドを検査できる。キットの `pre_tool_guard.py` は、対象指定のないフルテスト、NFRテストツール、広範なブラウザテストを検出し、明示承認がない限りブロックする。
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_tool_guard.py"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
-これは自由度を奪うためのルールではない。設計・実装・デバッグといったエージェントが得意な仕事に裁量を残し、リスク受容や資源配分のような人間が決めるべき判断を切り分ける構造である。
+ブロックは絶対的な禁止ではない。対象環境、合格基準、予算、責任者が明確な場合に限り、単発の承認として `ALLOW_NFR_TESTS=1` を付けて実行する。恒久的な環境変数にしてはいけない。
 
-## 3層のガードレール
+## `PostToolUse` Hookで証拠を残す
 
-### Intent Layer
+実行後は、コマンドと結果を記録する。これは監視のためだけではない。連続失敗が起きたとき、同じコマンドを繰り返すのではなく、実行履歴とエラー証拠から根本原因を切り分けるためである。
 
-目的、変更範囲、完了条件を記述する。特定の実装手順まで書き込みすぎない。
+さらに、プロジェクト固有のHookを追加して、Claude Codeが開始した開発サーバー、ワーカー、ブラウザの後始末を実装する。ただし、汎用的な `pkill` をHookへ入れてはならない。人間や他のタスクが開始したプロセスを誤って停止させるからである。
 
-### Safety Layer
+## 効果の評価は実測で行う
 
-NFRテストの開始条件、最大リトライ、タイムアウト、並列度、ネットワークや本番環境へのアクセスを定義する。ここは自然言語の指示だけでなく、CI設定やサンドボックスなど技術的な制約でも担保する。
+「Hooksを入れればコストが何%下がる」と約束するべきではない。測るべきは、初回フィードバック時間、テスト実行回数、同一失敗の連続回数、残留プロセス、PRでの回帰検出率である。代表タスクを固定した導入前後比較によって、チームの設定が自律性を壊さず、無駄な反復を減らしているかを判断する。
 
-### Feedback Layer
-
-失敗時にエージェントを再試行させるのではなく、観測事実・ログ・仮説・次の判断を返させる。これにより、人間は不確実性を抱えたままコストを燃やすのではなく、証拠に基づいて方針を決められる。
-
-## 導入後に測るべきもの
-
-特定の削減率を約束するのではなく、各リポジトリで導入前後を測る。代表タスクを固定し、最初の有効なフィードバックまでの時間、テストコマンド数、連続失敗回数、残留プロセス数、PRで検出された回帰を測定する。これが、ガードレールが「抑制」なのか「最適化」なのかを判断する唯一の方法である。
-
-テンプレートと検証プロトコルは、[Kanau Tech / AI-Driven Development Optimization Kit](https://github.com/kanautech/ai-agent-optimization-kit) で公開している。
+Codex、Cursor、Google Antigravityにも同じ原則は応用できる。しかし本キットはClaude Codeの `CLAUDE.md`、`.claude/settings.json`、Hooksを主対象に設計している。他の環境では、公式のルール・フック・CI機構に同じ境界を再実装すること。
 
 ## 参考資料
 
-[1] [OpenAI: Codex](https://openai.com/codex/)（取得日: 2026-08-17）  
-[2] [Cursor: AI Coding Agent](https://cursor.com/)（取得日: 2026-08-17）  
-[3] [Google Antigravity](https://antigravity.google/)（取得日: 2026-08-17）  
-[4] [Google Antigravity: Introducing Google Antigravity](https://antigravity.google/blog/introducing-google-antigravity)（取得日: 2026-08-17）
+[1] [Claude Code: Automate actions with hooks](https://code.claude.com/docs/en/hooks-guide)（取得日: 2026-08-17）  
+[2] [Claude Code: Settings](https://code.claude.com/docs/en/settings)（取得日: 2026-08-17）

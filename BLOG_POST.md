@@ -1,68 +1,69 @@
-# AI駆動開発のガバナンス：Codex・Cursor・Google Antigravityで「正しいテスト」を実行する
+# Claude Codeの自律性を活かしながら、過剰テストを止める：TDD Guardrails Kitを公開
 
 > **著者**: Kanau Tech  
 > **公開日**: 2026-08-17  
-> **OSS**: [kanautech/ai-agent-optimization-kit](https://github.com/kanautech/ai-agent-optimization-kit)
+> **GitHub**: [kanautech/ai-agent-optimization-kit](https://github.com/kanautech/ai-agent-optimization-kit)
 
-## AIコーディングの次の論点は「実行境界」である
+Claude Codeは、コードを書くだけの補助ツールではない。ファイル編集、ターミナル実行、テスト、ブラウザ操作、バックグラウンド作業までをタスクとして扱えるAIコーディングエージェントである。だからこそ、チームが設計すべき対象は「どのモデルが賢いか」ではなく、**Claude Codeにどの検証を、どの権限で、どの終了条件まで実行させるか**である。
 
-AIコーディングは、補完やチャットの段階を超えた。OpenAI CodexはChatGPT、IDE、CLIで利用できるソフトウェアエンジニアリング向けコーディングエージェントである [1]。CursorはDesktopやCLIを含むエージェント型コーディング環境であり [2]、Google AntigravityはIDE、CLI、SDK、複数エージェント管理を備えるエージェントファーストの開発プラットフォームである [3] [4]。
+Kanau Techは、この実行境界をClaude Codeで実装するための **Claude Code TDD Guardrails Kit** を公開した。`CLAUDE.md` で行動原則を定義し、`.claude/settings.json` とHooksで決定論的な制約を実装する構成である。
 
-これらの環境で重要なのは、どのモデルが最も強いかという表層的な比較ではない。コード生成、テスト、コマンド実行、ブラウザ操作、バックグラウンド作業まで可能なエージェントに対し、**どの権限で、どの検証を、どの終了条件まで実行させるか**を設計することである。
+## なぜClaude Codeにガードレールが必要なのか
 
-Kanau Techは、この実行境界を定義するための [AI-Driven Development Optimization Kit](https://github.com/kanautech/ai-agent-optimization-kit) を公開した。本キットは特定のAIモデルや特定製品の性能を主張するものではない。Codex、Cursor、Google Antigravity、Claude Codeなど、複数のエージェント型開発環境で使える運用原則とテンプレートを提供する。
+Claude CodeのHooksは、ファイル編集、タスク完了、入力待ちなどのライフサイクルイベントでユーザー定義のコマンドを実行できる。これは、LLMが「ルールを守るべきだ」と判断することに依存せず、特定の操作を必ず検証・ブロック・記録するための公式機構である。[Claude Code Hooks Guide](https://code.claude.com/docs/en/hooks-guide)
 
-## 問題は「テストが多いこと」ではない
+テスト戦略でもこの区別が重要になる。次のような依頼は危険である。
 
-テストは品質の根幹である。問題は、機能変更に対してどこまで検証を広げるか、NFRをいつ始めるか、失敗時にいつ停止するかが未定義なことである。
+> 「この機能を実装して、全部テストして。」
 
-| 未定義の事項 | 起こり得る問題 | 必要な判断 |
+この一文には、変更の範囲、統合テストへ上げる条件、NFRの開始条件、失敗時の停止条件がない。Claude Codeが利用可能なテストやブラウザ操作を広く探索したとしても、それは「AIの暴走」と決めつけるべきではない。人間が実行境界を定義していないことが問題である。
+
+## キットの3層構造
+
+| 層 | Claude Codeでの実装 | 役割 |
 |---|---|---|
-| 変更の影響範囲 | 局所的変更から、無関係な統合・E2Eへ検証が拡張する。 | 変更モジュール、外部境界、対象ユーザーフローを定義する。 |
-| NFRテストの開始条件 | 負荷・ストレス・レース検証が実装ループに混入する。 | 対象環境、ワークロード、合格基準、資源予算を定める。 |
-| 失敗時の終了条件 | 同じ障害への修正・再試行を反復する。 | リトライ上限、ログ保存、エスカレーションを定める。 |
-| 並列実行条件 | CPU・メモリ・ポート・テストデータが競合する。 | タスクの独立性と資源予算を確認してから並列化する。 |
+| Intent Layer | `CLAUDE.md` | 目的、変更範囲、完了条件、最小テスト優先を定義する。 |
+| Safety Layer | `.claude/settings.json` と `PreToolUse` Hook | 負荷・ストレス・フルE2Eなどの高コストな実行を、明示承認なしに開始させない。 |
+| Feedback Layer | `PostToolUse` / `Stop` / `Notification` Hook、CI | 実行証跡、失敗根拠、プロセス後始末、停止・通知を整える。 |
 
-この問題は、製品固有の欠陥と決めつけるべきではない。高い自律性と広い実行権限を持つエージェントに、プロジェクト文脈に沿った判断境界が必要だという設計課題である。
+## 何をブロックするのか
 
-## Kanau Techの3層ガードレール
+キットのHookは、テストを止めるためのものではない。以下を制御する。
 
-### Intent Layer：目的・範囲・完了条件を短く明確にする
+1. 対象を指定しないリポジトリ全体テスト。
+2. ワークロード、合格基準、資源予算のない負荷・ストレス・レーステスト。
+3. 根拠を追加しない同一失敗の反復。
+4. タスク終了後に残るサーバー、ワーカー、ブラウザ。
 
-エージェントには「どの設計を採用するか」「どのファイルを読むか」まで過度に固定せず、何を変更し、何を完了とするかを明記する。目的が明確であれば、実装・調査・局所デバッグには自律性を残せる。
-
-### Safety Layer：NFRと資源使用を明示承認にする
-
-負荷、ストレス、レース、セキュリティ、フルE2E検証は、対象・合格基準・予算が指定されたときに開始する。最大リトライ、並列度、タイムアウト、ネットワークアクセス、本番アクセス、プロセス後始末もここで定義する。
-
-### Feedback Layer：盲目的な再試行を証拠ベースの判断へ変える
-
-同じ障害が連続する場合、エージェントは止まり、失敗コマンド、ログ、環境の観測事実、原因仮説、判断が必要な点を提示する。人間は、リスク受容と次の方針を決める。
+一方で、変更に直接関係する単体テスト、型検査、lintは最初に実行する。統合テストはモジュール・永続化・ネットワークなどの境界を跨ぐときに拡張し、フルスイートはPR・リリースゲートに予約する。
 
 ## 導入方法
 
 ```bash
-curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/AGENTS.md -o AGENTS.md
-curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/GUARDRAILS.md -o GUARDRAILS.md
+mkdir -p .claude/hooks
+curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/CLAUDE.md -o CLAUDE.md
+curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/.claude/settings.json -o .claude/settings.json
 ```
 
-使用中のエージェント環境がこれらのファイルを読み込むか確認し、認識しない場合は公式ルール機構へ内容を移植する。最初は代表リポジトリの代表タスクで導入し、全社標準化は測定後に行う。
+その後、プロジェクトのテストコマンド、保護対象、NFRの承認者、実行予算を調整する。詳しくは [Claude Code導入ガイド](https://github.com/kanautech/ai-agent-optimization-kit/blob/master/CLAUDE_CODE_INTEGRATION.md) を参照されたい。
 
-## 効果は約束せず、測る
+## 効果は数値で約束せず、実タスクで測る
 
-本キットは「何%の速度向上」や「何%のコスト削減」を保証しない。効果はモデル、リポジトリ規模、テスト構成、実行権限、チーム運用に依存する。導入前後で、初回フィードバック時間、テスト実行回数、同一障害の連続失敗回数、残留プロセス、PRでの回帰検出率を比較し、ルールを改善していく。
+本キットは、CPU、トークン、開発時間、品質の改善率を保証しない。モデル、リポジトリ、テスト構成、チームのワークフローで結果は変わる。代表タスクを固定し、導入前後の初回フィードバック時間、テスト実行回数、連続失敗回数、残留プロセス、回帰検出率を測定して採用判断を行う。
 
 > 目的はテストを減らすことではない。**正しいテストを、正しい層で、正しいタイミングに実行すること**である。
 
+## 他の環境への応用
+
+Codex、Cursor、Google Antigravityなどにも、最小関連テスト、NFRの明示承認、リトライ上限、資源上限という原則は応用できる。ただし、本キットの主対象はClaude Codeであり、Hooksと `CLAUDE.md` をそのまま他製品へ移植できるとは限らない。各製品の公式ルール・フック機構で再実装すること。
+
 ## Tiếng Việt — Tóm tắt
 
-Các môi trường phát triển có tác tử AI như Codex, Cursor, Google Antigravity và Claude Code có thể lập trình, chạy test, thực thi CLI và xử lý tác vụ nền. Vì thế, vấn đề quan trọng không phải là chọn “model mạnh nhất”, mà là thiết kế ranh giới thực thi: AI được chạy kiểm thử nào, trong điều kiện nào, với điểm dừng nào.
+Bộ công cụ này tập trung vào **Claude Code**. `CLAUDE.md` định nghĩa mục tiêu, phạm vi thay đổi và chiến lược test; còn Hooks trong `.claude/settings.json` tạo ra các ràng buộc mang tính quyết định để chặn việc chạy test NFR hoặc test toàn bộ repository khi chưa có phê duyệt rõ ràng.
 
-**AI-Driven Development Optimization Kit** của Kanau Tech cung cấp các nguyên tắc trung lập theo nhà cung cấp: bắt đầu từ test nhỏ nhất liên quan trực tiếp đến thay đổi, chỉ chạy NFR khi con người đã xác định mục tiêu và tiêu chí chấp nhận, giới hạn retry, và luôn lưu bằng chứng trước khi yêu cầu quyết định tiếp theo.
+Mục tiêu không phải là giảm số lượng test. Mục tiêu là chạy **đúng bài test, đúng tầng, đúng thời điểm**. Codex, Cursor và Google Antigravity có thể áp dụng cùng nguyên tắc, nhưng cần chuyển đổi theo cơ chế rules/hook chính thức của từng sản phẩm.
 
 ## 参考資料
 
-[1] [OpenAI: Codex](https://openai.com/codex/)（取得日: 2026-08-17）  
-[2] [Cursor: AI Coding Agent](https://cursor.com/)（取得日: 2026-08-17）  
-[3] [Google Antigravity](https://antigravity.google/)（取得日: 2026-08-17）  
-[4] [Google Antigravity: Introducing Google Antigravity](https://antigravity.google/blog/introducing-google-antigravity)（取得日: 2026-08-17）
+- [Claude Code Hooks Guide](https://code.claude.com/docs/en/hooks-guide)（取得日: 2026-08-17）
+- [Claude Code Settings](https://code.claude.com/docs/en/settings)（取得日: 2026-08-17）

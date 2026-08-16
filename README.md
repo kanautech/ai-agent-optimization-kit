@@ -1,72 +1,85 @@
-# AI-Driven Development Optimization Kit
+# Claude Code TDD Guardrails Kit
 
-> **AIコーディングエージェントの自律性を活かしながら、NFR（非機能要件）の過剰検証、無制限のリトライ、不要なリソース消費を抑制するための、ベンダー中立な設定テンプレート集。**
+> **Claude Codeを主対象に、AIエージェントの自律性を保ちながら、NFR（非機能要件）の過剰検証、無制限リトライ、不要なプロセス残留を防ぐ設定・Hookテンプレート集。**
 
-## 対象とする開発環境
+## 何を解決するか
 
-本キットは、**OpenAI Codex**、**Cursor**、**Google Antigravity**、Claude Codeなど、コードの生成・編集・テスト・コマンド実行を支援するエージェント型開発環境を想定している。これらは同一のモデルではなく、IDE・CLI・エージェントオーケストレーションを含む異なる製品である。製品ごとに設定ファイルの検出方法、実行権限、モデル、並列性、サンドボックスの実装が異なるため、導入時には当該製品の公式ドキュメントを確認すること。
+Claude Codeは、プロジェクト指示、ターミナル、ファイル編集、テスト、ブラウザ操作を組み合わせてタスクを実行できる。この自律性を活かすには、テストを少なくするのではなく、**正しいテストを、正しい層で、正しいタイミングに実行する**ための境界が必要である。
 
-| 環境 | 公式上の位置付け | 本キットで扱う論点 |
+本キットは以下の失敗モードを対象にする。
+
+- 局所的な変更から、無関係なフルE2E・負荷・レースコンディション検証へ拡張すること。
+- 同じ失敗に対して修正・再テストを無制限に繰り返すこと。
+- テストワーカー、開発サーバー、ブラウザがタスク後に残留すること。
+- MVP・社内ツールの段階で、スコープを超えるNFR検証を自動開始すること。
+
+## Claude Codeでの構成
+
+Claude Codeでは、自然言語の原則と決定論的な制約を分ける。
+
+| 層 | 実装場所 | 役割 |
 |---|---|---|
-| [OpenAI Codex](https://openai.com/codex/) | ソフトウェアエンジニアリング向けAIコーディングエージェント。ChatGPT、IDE、CLIで利用可能。 | ターミナル／IDE実行時のテスト範囲、リトライ、プロセス管理。 |
-| [Cursor](https://cursor.com/) | エージェント型コーディング環境。Desktop、CLI、エージェント機能を提供。 | Rulesやプロジェクト指示における最小限の行動制約。 |
-| [Google Antigravity](https://antigravity.google/) | エージェントファーストの開発プラットフォーム。CLI、IDE、複数エージェント管理を提供。 | 並列エージェント、バックグラウンド作業、検証タスクの資源上限。 |
+| Intent Layer | `CLAUDE.md` | 目的、変更範囲、完了条件、最小テスト優先の原則を定義する。 |
+| Safety Layer | `.claude/settings.json` と `PreToolUse` Hooks | 実行前に保護対象や高リスク操作をブロックし、NFRの開始条件を定義する。 |
+| Feedback Layer | `PostToolUse` / `Stop` / `Notification` Hooks、CI | 失敗証拠、整形、プロセス後始末、停止・通知を一貫して実行する。 |
 
-## キットの目的
+Claude CodeのHooksは、ライフサイクル上の特定ポイントでユーザー定義コマンドを実行する公式機構であり、LLMに「守ってほしい」と依頼するだけでは担保できない決定論的な制約を実装できる。[公式Hooksガイド](https://code.claude.com/docs/en/hooks-guide)
 
-本キットは、AIエージェントのテストを減らすこと自体を目的にしない。**変更に対して適切なテストを、適切な層で、適切なタイミングに実行する**ための判断境界を定義する。
-
-次の問題を対象とする。
-
-- 機能変更と無関係なフルE2E、負荷、レースコンディション検証の自動開始。
-- 同一障害に対する無制限の修正・再テストループ。
-- バックグラウンドプロセスやブラウザの残留。
-- MVPや社内ツールのスコープを超えるNFRテストの実行。
-
-## コンポーネント
-
-| ファイル | 役割 |
-|---|---|
-| [`AGENTS.md`](./AGENTS.md) | 目的優先、最小テスト優先、根本原因優先という行動原則。 |
-| [`GUARDRAILS.md`](./GUARDRAILS.md) | NFRテストの開始条件、リトライ回数、並列度、タイムアウト、プロセス後始末を定義する安全境界。 |
-| [`INTEGRATION_AND_GUARDRAILS.md`](./INTEGRATION_AND_GUARDRAILS.md) | Claude Codeを例にした導入手順とNFRガードレールの設定例。 |
-| [`TDD_OPTIMIZATION_KIT.md`](./TDD_OPTIMIZATION_KIT.md) | 運用ルールとプロンプト例。 |
-| [`VERIFICATION_REPORT.md`](./VERIFICATION_REPORT.md) | 最小のサンドボックス検証の記録と限界。 |
-
-## 導入方法
-
-プロジェクトの規模とリスクに合わせて、テンプレートをコピーしてから調整する。
+## 最短の導入方法
 
 ```bash
-curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/AGENTS.md -o AGENTS.md
-curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/GUARDRAILS.md -o GUARDRAILS.md
+mkdir -p .claude/hooks
+curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/CLAUDE.md -o CLAUDE.md
+curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/.claude/settings.json -o .claude/settings.json
 ```
 
-その後、対象のAIコーディング環境がプロジェクト内の指示ファイルを認識することを確認する。認識しない製品では、内容をその製品の公式ルール機構へ移植する。
+次に、プロジェクトのテストコマンド・パッケージマネージャ・保護すべきファイル・NFRテストの開始条件に合わせてテンプレートを編集する。詳細は [`CLAUDE_CODE_INTEGRATION.md`](./CLAUDE_CODE_INTEGRATION.md) を参照する。
 
-> 導入後は、トークン、CPU、テスト時間、失敗回数を**導入前後で実測**すること。特定の削減率やCPU使用率は環境・プロジェクト・モデル・実行権限に依存するため、本キットは数値改善を保証しない。
+## ファイル一覧
 
-## 設計原則
+| ファイル | 用途 |
+|---|---|
+| [`CLAUDE.md`](./CLAUDE.md) | Claude Codeに渡す、目的・テスト範囲・停止条件のプロジェクト指示。 |
+| [`.claude/settings.json`](./.claude/settings.json) | Claude Code Hooksを登録するプロジェクト設定。 |
+| [`.claude/hooks/pre_tool_guard.py`](./.claude/hooks/pre_tool_guard.py) | NFRテスト、危険な並列実行、保護対象への操作を実行前に判定するHook。 |
+| [`.claude/hooks/post_tool_cleanup.sh`](./.claude/hooks/post_tool_cleanup.sh) | タスク後の基本的な後始末と証拠記録を支援するHook。 |
+| [`CLAUDE_CODE_INTEGRATION.md`](./CLAUDE_CODE_INTEGRATION.md) | Claude Codeへの導入・検証・ロールバック手順。 |
+| [`AGENTS.md`](./AGENTS.md) / [`GUARDRAILS.md`](./GUARDRAILS.md) | 他のエージェント型環境へ原則を移植する際の汎用リファレンス。 |
 
-1. **Intent first**: 「何を達成するか」を明確にし、細かな手順は必要な場合だけ加える。
-2. **Smallest test first**: 変更に直接関係する単体テスト、型検査、lintから開始する。
-3. **NFR by explicit decision**: 負荷、ストレス、セキュリティ、並行性テストは、リスク、対象環境、合格基準を人間が明示して開始する。
-4. **Root cause over retries**: 失敗を盲目的に再試行せず、証拠を読み、原因を切り分ける。
-5. **Hard operational bounds**: リトライ、並列実行、タイムアウト、残留プロセスに明確な上限を設ける。
+## NFRテストの開始条件
 
-## 検証上の注意
+性能、負荷、ストレス、レース、セキュリティ、フルE2Eは、実装タスクの標準手順として自動開始しない。開始するには、少なくとも以下を明示する。
 
-`VERIFICATION_REPORT.md` は、最小のNode.js単体テストを使った**設定方針のスモークテスト**である。Codex、Cursor、Google Antigravity、Claude Codeの実行器・モデル・ハーネスの性能比較や、リソース削減を実証するベンチマークではない。採用判断には、各チームの代表タスクを用いた再現可能なA/B測定を追加すること。
+1. **対象環境**: ローカル、ステージング、本番相当など。
+2. **シナリオ**: どの操作、トラフィック、並列性を検証するか。
+3. **合格基準**: レイテンシ、エラー率、整合性、セキュリティ要件など。
+4. **資源予算**: 所要時間、並列数、使用可能な環境・認証情報。
+5. **実行責任者**: 誰が結果を解釈し、次の判断を行うか。
+
+## 効果の評価
+
+本キットは、速度・トークン・CPU・品質の改善率を保証しない。効果は、モデル、リポジトリ、テスト構成、権限、チームのワークフローに依存する。採用判断では、代表タスクを選び、導入前後で以下を測定する。
+
+| KPI | 定義 |
+|---|---|
+| 初回フィードバック時間 | 変更開始から、lint・型検査・対象単体テストが完了するまでの時間。 |
+| テスト実行回数 | 1タスクにおけるテストコマンドの実行回数。 |
+| 同一失敗の連続回数 | 同じエラーシグネチャに対する反復数。 |
+| 残留プロセス数 | タスク後に残ったテストワーカー、サーバー、ブラウザ。 |
+| 回帰検出率 | PR・リリースゲートで検出された回帰の割合。 |
+
+## 他ツールへの応用
+
+Codex、Cursor、Google Antigravityなどでも、最小関連テスト、NFRの明示承認、失敗時の停止条件、資源上限という原則を応用できる。ただし、これらはClaude Codeとは異なる製品であり、`CLAUDE.md` やHooksの設定をそのまま認識することは保証されない。各製品の公式ルール・設定・フック機構に同じ原則を移植すること。
 
 ## ライセンス
 
 ライセンスを選定・追加するまでは、外部利用者に対する権利許諾は明示されない。公開OSSとして配布する前に、Kanau Techの方針に合うライセンス（例：MITまたはApache-2.0）を選定して `LICENSE` を追加すること。
 
-## 参考資料
+## 公式資料
 
-- [OpenAI Codex](https://openai.com/codex/)
-- [Cursor](https://cursor.com/)
-- [Google Antigravity](https://antigravity.google/)
-- [Google Antigravity: Introducing Google Antigravity](https://antigravity.google/blog/introducing-google-antigravity)
-
-**確信度**: 高。製品の位置付けは公式ページに基づく。一方、個別プロジェクトにおけるコスト・速度・品質の改善度は測定なしに断定しない。
+- [Claude Code Hooks Guide](https://code.claude.com/docs/en/hooks-guide)（取得日: 2026-08-17）
+- [Claude Code Settings](https://code.claude.com/docs/en/settings)（取得日: 2026-08-17）
+- [OpenAI Codex](https://openai.com/codex/)（補助的適用先）
+- [Cursor](https://cursor.com/)（補助的適用先）
+- [Google Antigravity](https://antigravity.google/)（補助的適用先）

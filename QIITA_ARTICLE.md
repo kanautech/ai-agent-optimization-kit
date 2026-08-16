@@ -1,25 +1,26 @@
 ---
-title: "Codex・Cursor・Antigravityで使う：AIエージェントの過剰テストを防ぐTDDガードレール"
-tags: AI, Codex, Cursor, TDD, 生産性向上
+title: "Claude CodeのHooksで過剰テストを防ぐ：TDDガードレール導入術"
+tags: ClaudeCode, Anthropic, AI, TDD, 生産性向上
 ---
 
-# Codex・Cursor・Antigravityで使う：AIエージェントの過剰テストを防ぐTDDガードレール
+# Claude CodeのHooksで過剰テストを防ぐ：TDDガードレール導入術
 
-AIコーディングエージェントは、実装、テスト、CLI実行、ブラウザ操作までを一連のタスクとして扱えるようになった。OpenAI CodexはChatGPT・IDE・CLIで利用できるコーディングエージェントであり、CursorはDesktop・CLIを含むエージェント型開発環境、Google AntigravityはIDE・CLI・複数エージェント管理を備える開発プラットフォームである [1] [2] [3]。
+Claude Codeは、コード編集だけでなく、ターミナル、テスト、ブラウザ操作を組み合わせてタスクを実行できる。その自律性を開発速度と品質へつなげるには、`CLAUDE.md` の行動原則だけでは不十分である。Claude Code公式のHooksを使い、実行前後のライフサイクルで決定論的な制約を置く必要がある [1]。
 
-この能力は有益だが、プロジェクトのスコープを明示しないと、AIエージェントが変更と無関係なテストまで拡張する。例えば、ユーティリティ関数の変更に対してフルE2E、負荷、並行性テストまで始めるなら、品質向上ではなく開発ループを遅くする。問題は「AIがテストをすること」ではない。**どのテストを、どの変更に対して、いつ実行するかが未定義なこと**である。
+例えば、ユーティリティ関数の変更に対してフルE2E、負荷、並行性テストまで始めるなら、品質向上ではなく開発ループを遅くする。問題は「Claude Codeがテストをすること」ではない。**どのテストを、どの変更に対して、いつ実行するかが未定義なこと**である。
 
 本稿では、Kanau Techが公開した [AI-Driven Development Optimization Kit](https://github.com/kanautech/ai-agent-optimization-kit) を用いて、AIエージェントの自律性を潰さずに過剰検証を抑える方法を説明する。
 
 ## 対象ツールと前提
 
-| ツール | 公式上の位置付け | 本稿での扱い |
-|---|---|---|
-| Codex | OpenAIのソフトウェアエンジニアリング向けAIコーディングエージェント。 | エディタ・CLI・クラウド実行でのテスト範囲を制御する。 |
-| Cursor | エージェント型コーディング環境。 | プロジェクト指示とエージェント実行の境界を定義する。 |
-| Google Antigravity | エージェントファーストの開発プラットフォーム。 | 複数エージェントやバックグラウンド作業の資源上限を定義する。 |
+| Claude Codeの構成要素 | 本稿での扱い |
+|---|---|
+| `CLAUDE.md` | 目的、変更範囲、完了条件、最小テスト優先の原則を置く。 |
+| `.claude/settings.json` | Hooksを登録し、実行前後の制約を構成する。 |
+| `PreToolUse` Hook | 広範なテストや未承認NFR操作を実行前にブロックする。 |
+| `PostToolUse` Hook | コマンド証跡を記録し、失敗時の根拠を残す。 |
 
-各製品は別のサービスであり、同一モデルや同一の設定機構ではない。そのため、以下のテンプレートは**汎用原則**であり、各製品の公式ルール機構に合わせて移植する。
+本稿の主対象はClaude Codeである。Codex、Cursor、Google Antigravityは、同じ原則を応用できる補助的な適用先として扱うが、設定形式やHook機構は異なるため、このテンプレートをそのまま移植してはいけない。
 
 ## まず実装するべき5つのガードレール
 
@@ -90,6 +91,5 @@ curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/ma
 
 ## 参考資料
 
-[1] [OpenAI: Codex](https://openai.com/codex/)（取得日: 2026-08-17）  
-[2] [Cursor: AI Coding Agent](https://cursor.com/)（取得日: 2026-08-17）  
-[3] [Google Antigravity](https://antigravity.google/)（取得日: 2026-08-17）
+[1] [Claude Code: Automate actions with hooks](https://code.claude.com/docs/en/hooks-guide)（取得日: 2026-08-17）  
+[2] [Claude Code Settings](https://code.claude.com/docs/en/settings)（取得日: 2026-08-17）

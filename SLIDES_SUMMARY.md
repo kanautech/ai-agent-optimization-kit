@@ -1,22 +1,22 @@
-# プレゼンテーションスライド構成サマリー（改訂版）
+# プレゼンテーションスライド構成サマリー（Claude Code版）
 
-**デッキ URI**: `manus-slides://zwIh0BFwqDl7nd8UPQ8hqy`  
-**対象**: Codex、Cursor、Google Antigravity、Claude Codeなどのエージェント型開発環境  
-**改訂方針**: 特定モデル・特定製品の挙動や、未測定の性能数値を断定せず、ベンダー中立な実行ガバナンスと測定設計を示す。
+**デッキ**: Claude Code TDD Guardrails — 自律性を保ち、過剰検証を止める  
+**主対象**: Claude Code  
+**補助的適用先**: Codex、Cursor、Google Antigravity等。設定・Hook機構が異なるため、原則のみを移植する。
 
 | # | スライド | 主張 |
 |---:|---|---|
-| 1 | AIコーディングエージェントのTDD最適化 | Codex・Cursor・Google Antigravity・Claude Codeを例に、TDDの実行境界を設計する。 |
-| 2 | 課題：自律実行の「境界」が未定義 | 変更範囲、NFR開始条件、失敗時の終了条件を定義しないことが問題の核である。 |
-| 3 | NFR過剰検証を防ぐための判断境界 | Scope、NFR、Stopの3つの境界を具体化する。 |
-| 4 | ルールの量ではなく、判断境界 | 曖昧な命令の積み上げと、目的・検証・停止条件の明記を対比する。 |
-| 5 | ルールの棚卸し | 各ルールを防ぐ失敗モード、適用範囲、例外、測定方法で審査する。 |
-| 6 | Unhobbling：AIの足かせを外す手法 | 実装・探索には裁量を残し、NFRやリスク受容には人間の判断を置く。 |
-| 7 | ベストプラクティス | 最小関連テスト、明示的NFR、人間介在、サーキットブレーカー、モックの活用。 |
-| 8 | 階層的ガードレール・モデル | Intent / Safety / Feedbackの3層を、プロンプトだけでなくCI・サンドボックスにも実装する。 |
-| 9 | 段階導入と測定設計 | 代表タスクで、初回フィードバック時間・テスト回数・連続失敗・回帰検出を測る。 |
-| 10 | 結論 | Right Test, Right Layer, Right Time。採用判断は特定の数値ではなく実測に基づく。 |
+| 1 | Claude Code TDD Guardrails | `CLAUDE.md` とHooksを組み合わせ、Claude Codeの実行を統制する。 |
+| 2 | CLAUDE.mdだけでは実行境界を担保できない | 自然言語の行動原則と、Hooksによる決定論的な実行制約を分離する。 |
+| 3 | Claude CodeでNFR過剰検証を防ぐ判断境界 | Scope、NFR、Stopを `CLAUDE.md`、PreToolUse、PostToolUseへ対応付ける。 |
+| 4 | ルールの量ではなく、判断境界 | 目的・検証・停止条件を明確にし、曖昧な抽象命令を減らす。 |
+| 5 | ルールの棚卸し | 各ルールを失敗モード、適用範囲、例外、測定方法で審査する。 |
+| 6 | Unhobbling：裁量と統制の分離 | 実装・調査・デバッグはClaude Codeへ、NFR・リスク受容は人間へ分離する。 |
+| 7 | ベストプラクティス | Smallest Test First、NFRの明示承認、停止条件、モックの活用。 |
+| 8 | 階層的ガードレール・モデル | Intent / Safety / FeedbackをCLAUDE.md、Hooks、CIへ実装する。 |
+| 9 | 段階導入と測定設計 | 代表タスクを使い、初回フィードバック時間、反復、回帰を測る。 |
+| 10 | 結論 | Right Test, Right Layer, Right Time。Claude Codeの自律性と統制を両立する。 |
 
 ## 注記
 
-本デッキは、Codex、Cursor、Google Antigravity、Claude Codeの機能・モデル・性能を比較するものではない。各製品が異なる設定機構と実行環境を持つ前提で、プロジェクト固有のテスト実行ガバナンスを設計するための資料である。
+本デッキはClaude Codeの公式機能・性能比較ではない。Claude Codeの `CLAUDE.md` とHooksを使い、各チームが実行境界を設計するための資料である。効果は代表タスクによる導入前後の測定で確認する。
