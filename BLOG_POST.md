@@ -1,79 +1,68 @@
-# AI駆動開発における「引き算の美学」：Claude CodeとSolの暴走を防ぐTDD最適化キットのオープンソース公開
+# AI駆動開発のガバナンス：Codex・Cursor・Google Antigravityで「正しいテスト」を実行する
 
-> **著者**: Kanautech  
-> **公開日**: 2026年8月16日  
-> **リポジトリ**: [kanautech/ai-agent-optimization-kit](https://github.com/kanautech/ai-agent-optimization-kit)
+> **著者**: Kanau Tech  
+> **公開日**: 2026-08-17  
+> **OSS**: [kanautech/ai-agent-optimization-kit](https://github.com/kanautech/ai-agent-optimization-kit)
 
----
+## AIコーディングの次の論点は「実行境界」である
 
-## 1. はじめに：AIの「暴走」と資源浪費という現実
+AIコーディングは、補完やチャットの段階を超えた。OpenAI CodexはChatGPT、IDE、CLIで利用できるソフトウェアエンジニアリング向けコーディングエージェントである [1]。CursorはDesktopやCLIを含むエージェント型コーディング環境であり [2]、Google AntigravityはIDE、CLI、SDK、複数エージェント管理を備えるエージェントファーストの開発プラットフォームである [3] [4]。
 
-近年の先進的なAIコーディングエージェント（Claude Code、OpenAI Codex、Solモデル系列など）の進化は、ソフトウェア開発のあり方を根本から変えつつある [1] [6]。人間が数時間かけて記述していたボイラープレートやテストコードは、今や数秒で自動生成され、テスト駆動開発（TDD）のサイクルも自律的に回るようになった [1]。
+これらの環境で重要なのは、どのモデルが最も強いかという表層的な比較ではない。コード生成、テスト、コマンド実行、ブラウザ操作、バックグラウンド作業まで可能なエージェントに対し、**どの権限で、どの検証を、どの終了条件まで実行させるか**を設計することである。
 
-しかし、開発現場からは新たな悲鳴が上がっている。「エージェントがテスト失敗の無限ループに陥り、CPU使用率が常時99%に張り付いてマシンが熱暴走する」「高速モードで回した結果、数時間で月間トークンクォータが枯渇した」といったトラブルである [1]。
+Kanau Techは、この実行境界を定義するための [AI-Driven Development Optimization Kit](https://github.com/kanautech/ai-agent-optimization-kit) を公開した。本キットは特定のAIモデルや特定製品の性能を主張するものではない。Codex、Cursor、Google Antigravity、Claude Codeなど、複数のエージェント型開発環境で使える運用原則とテンプレートを提供する。
 
-本記事では、この課題の根本原因を「非機能要件（NFRs）の過剰検証」および「過剰なプロンプトによる思考の窒息（Product Overhang）」にあると定義し、Kanautechが新たにオープンソースとして公開した**「AI駆動開発最適化キット（AI-Driven Development Optimization Kit）」**を通じた解決策を提示する。
+## 問題は「テストが多いこと」ではない
 
----
+テストは品質の根幹である。問題は、機能変更に対してどこまで検証を広げるか、NFRをいつ始めるか、失敗時にいつ停止するかが未定義なことである。
 
-## 2. なぜAIは「無駄なテスト」を無限に実行するのか？
+| 未定義の事項 | 起こり得る問題 | 必要な判断 |
+|---|---|---|
+| 変更の影響範囲 | 局所的変更から、無関係な統合・E2Eへ検証が拡張する。 | 変更モジュール、外部境界、対象ユーザーフローを定義する。 |
+| NFRテストの開始条件 | 負荷・ストレス・レース検証が実装ループに混入する。 | 対象環境、ワークロード、合格基準、資源予算を定める。 |
+| 失敗時の終了条件 | 同じ障害への修正・再試行を反復する。 | リトライ上限、ログ保存、エスカレーションを定める。 |
+| 並列実行条件 | CPU・メモリ・ポート・テストデータが競合する。 | タスクの独立性と資源予算を確認してから並列化する。 |
 
-Sol等のFrontierモデルは、非常に高い内省的推論能力を持つ反面、「完璧に検証しなければならない」というバイアスを持ちやすい。その結果、以下のようなオーバーエンジニアリングが自動実行される。
+この問題は、製品固有の欠陥と決めつけるべきではない。高い自律性と広い実行権限を持つエージェントに、プロジェクト文脈に沿った判断境界が必要だという設計課題である。
 
-1. **UUIDの重複テスト**: MVPや初期開発段階であるにもかかわらず、数十のワーカーを同時に立ててデータ競合を検証する [1]。
-2. **過剰なP99レイテンシ目標**: 到達困難なパフォーマンス数値を達成しようとして無限ループに突入する [1]。
-3. **不要なE2Eブラウザテスト**: ロジックの微小な変更に対しても、ヘッドレスブラウザを起動して全画面のテストを実行する [1]。
+## Kanau Techの3層ガードレール
 
-これらはすべて、AIに対する「文脈的制約（Guardrails）」の欠如と、プロジェクトのスケールに合致しない過剰な品質基準の設定に起因している。
+### Intent Layer：目的・範囲・完了条件を短く明確にする
 
----
+エージェントには「どの設計を採用するか」「どのファイルを読むか」まで過度に固定せず、何を変更し、何を完了とするかを明記する。目的が明確であれば、実装・調査・局所デバッグには自律性を残せる。
 
-## 3. 「引き算（Ablation）」による知能の解放：Unhobbling の思想
+### Safety Layer：NFRと資源使用を明示承認にする
 
-AnthropicのClaude Code開発チームが実証したように、最新のAIモデルの性能を引き出す鍵は、指示を増やす「足し算」ではなく、不要なルールを削ぎ落す**「引き算（Ablation）」**にある [6]。
+負荷、ストレス、レース、セキュリティ、フルE2E検証は、対象・合格基準・予算が指定されたときに開始する。最大リトライ、並列度、タイムアウト、ネットワークアクセス、本番アクセス、プロセス後始末もここで定義する。
 
-旧世代のモデルでは1行ずつの細かい手順指定が必要だったが、シニア級の能力を持つ新世代モデルに対して同じことを行うと、ルール間の矛盾や優先順位の判断でトークンと推論力が浪費される [6]。プロンプトの80%を削除し、モデル自身に「目的（Goal）」のみを与えて最短ルートを探索させること（Unhobbling）こそが、最も確実な高速化とコスト削減の手段である [6]。
+### Feedback Layer：盲目的な再試行を証拠ベースの判断へ変える
 
----
+同じ障害が連続する場合、エージェントは止まり、失敗コマンド、ログ、環境の観測事実、原因仮説、判断が必要な点を提示する。人間は、リスク受容と次の方針を決める。
 
-## 4. Kanautech OSS キットの概要と導入方法
+## 導入方法
 
-Kanautechでは、この「引き算の美学」と「階層的ガードレール」を即座にプロジェクトへ適用するためのオープンソースキットを公開した。
+```bash
+curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/AGENTS.md -o AGENTS.md
+curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/GUARDRAILS.md -o GUARDRAILS.md
+```
 
-- **リポジトリ**: [kanautech/ai-agent-optimization-kit](https://github.com/kanautech/ai-agent-optimization-kit)
+使用中のエージェント環境がこれらのファイルを読み込むか確認し、認識しない場合は公式ルール機構へ内容を移植する。最初は代表リポジトリの代表タスクで導入し、全社標準化は測定後に行う。
 
-### 含まれるコンポーネント
-- `AGENTS.md`: 最小限のテスト原則と Unhobbling 思想に基づく行動階層の定義。
-- `GUARDRAILS.md`: NFR過剰検証の禁止、リトライ上限、およびサーキットブレーカーによる安全階層の定義。
-- `TDD_OPTIMIZATION_KIT.md`: 実務でのプロンプト例とリソース節約テクニック。
+## 効果は約束せず、測る
 
-### 導入手順
-1. リポジトリからファイルをクローン、またはダウンロードし、プロジェクトのルートディレクトリに配置する。
-2. 既存の長大な指示ファイルをクリーンアップし、不要なルールを80%削除する [6]。
-3. エージェントの起動時に本キットの読み込みを指示する。
+本キットは「何%の速度向上」や「何%のコスト削減」を保証しない。効果はモデル、リポジトリ規模、テスト構成、実行権限、チーム運用に依存する。導入前後で、初回フィードバック時間、テスト実行回数、同一障害の連続失敗回数、残留プロセス、PRでの回帰検出率を比較し、ルールを改善していく。
 
----
+> 目的はテストを減らすことではない。**正しいテストを、正しい層で、正しいタイミングに実行すること**である。
 
-## 5. 結びにかえて
+## Tiếng Việt — Tóm tắt
 
-AI駆動開発の成否は、「AIをどれだけ縛るか」ではなく「AIの知能をいかに正しく解放し、適切なガードレールで守るか」にかかっている。KanautechのOSSキットを活用し、クォータの浪費とハードウェアの消耗のない、持続可能で高速な開発サイクルを実現されたい。
+Các môi trường phát triển có tác tử AI như Codex, Cursor, Google Antigravity và Claude Code có thể lập trình, chạy test, thực thi CLI và xử lý tác vụ nền. Vì thế, vấn đề quan trọng không phải là chọn “model mạnh nhất”, mà là thiết kế ranh giới thực thi: AI được chạy kiểm thử nào, trong điều kiện nào, với điểm dừng nào.
 
----
+**AI-Driven Development Optimization Kit** của Kanau Tech cung cấp các nguyên tắc trung lập theo nhà cung cấp: bắt đầu từ test nhỏ nhất liên quan trực tiếp đến thay đổi, chỉ chạy NFR khi con người đã xác định mục tiêu và tiêu chí chấp nhận, giới hạn retry, và luôn lưu bằng chứng trước khi yêu cầu quyết định tiếp theo.
 
-# Tiếng Việt (Bản tóm tắt)
+## 参考資料
 
-## Nghệ thuật "Cắt giảm" trong Phát triển Phần mềm Hướng dẫn bằng AI: Giới thiệu Bộ Công cụ Tối ưu hóa TDD Mã nguồn mở từ Kanautech
-
-Sự bùng nổ của các mô hình AI tiên tiến (như Sol, Claude Code) đã mang lại khả năng TDD tự động mạnh mẽ [1] [6]. Tuy nhiên, việc thiếu các ràng buộc ngữ cảnh thường dẫn đến hiện tượng AI lặp vô tận các bài kiểm tra NFR (phi chức năng) không cần thiết, làm cạn kiệt tài nguyên CPU và hạn ngạch token [1].
-
-Dựa trên triết lý **"Unhobbling"** (gỡ bỏ xiềng xích) và **"Ablation"** (cắt giảm 80% prompt dư thừa) [6], Kanautech chính thức phát hành mã nguồn mở **AI-Driven Development Optimization Kit**. 
-
-- **GitHub Repository**: [kanautech/ai-agent-optimization-kit](https://github.com/kanautech/ai-agent-optimization-kit)
-
-Bộ công cụ này cung cấp `AGENTS.md` và `GUARDRAILS.md` giúp kiểm soát chặt chẽ các tầng kiểm thử, ngăn chặn kiểm tra NFR quá mức, và tối ưu hóa hiệu suất làm việc của AI trong các dự án thực tế.
-
----
-
-## 参考文献
-[1] Viet Tran. (2026). *AI駆動開発におけるテスト駆動開発と非機能要件の過剰検証に関する考察*. Facebook.  
-[6] Boris Cherny. (2026). *We Cut 80% of Claude Code's Prompt*. YouTube / Y Combinator.
+[1] [OpenAI: Codex](https://openai.com/codex/)（取得日: 2026-08-17）  
+[2] [Cursor: AI Coding Agent](https://cursor.com/)（取得日: 2026-08-17）  
+[3] [Google Antigravity](https://antigravity.google/)（取得日: 2026-08-17）  
+[4] [Google Antigravity: Introducing Google Antigravity](https://antigravity.google/blog/introducing-google-antigravity)（取得日: 2026-08-17）

@@ -1,59 +1,95 @@
 ---
-title: 【Claude Code / Codex】AIエージェントの暴走とクォータ枯渇を防ぐ！TDD最適化キットの導入術
-tags: AI, ClaudeCode, TDD, 生産性向上, ガードレール
+title: "Codex・Cursor・Antigravityで使う：AIエージェントの過剰テストを防ぐTDDガードレール"
+tags: AI, Codex, Cursor, TDD, 生産性向上
 ---
 
-# 【Claude Code / Codex】AIエージェントの暴走とクォータ枯渇を防ぐ！TDD最適化キットの導入術
+# Codex・Cursor・Antigravityで使う：AIエージェントの過剰テストを防ぐTDDガードレール
 
-## はじめに
-近年のAIコーディングエージェント（Claude Code、OpenAI Codex、Solモデル等）の進化は目覚ましく、プロンプトを投げるだけでテスト駆動開発（TDD）のサイクルを自律的に回してくれるようになりました [1] [6]。
+AIコーディングエージェントは、実装、テスト、CLI実行、ブラウザ操作までを一連のタスクとして扱えるようになった。OpenAI CodexはChatGPT・IDE・CLIで利用できるコーディングエージェントであり、CursorはDesktop・CLIを含むエージェント型開発環境、Google AntigravityはIDE・CLI・複数エージェント管理を備える開発プラットフォームである [1] [2] [3]。
 
-しかし、開発現場では以下のようなトラブルが頻発しています。
-- テスト失敗の無限ループに陥り、CPUが常に99%で熱暴走する [1]
-- 高速モードで回した結果、数時間で月間トークンクォータが枯渇する [1]
-- MVP開発であるにもかかわらず、AIが勝手に数万人の同時接続テストやUUID衝突テストを始めて止まらない [1]
+この能力は有益だが、プロジェクトのスコープを明示しないと、AIエージェントが変更と無関係なテストまで拡張する。例えば、ユーティリティ関数の変更に対してフルE2E、負荷、並行性テストまで始めるなら、品質向上ではなく開発ループを遅くする。問題は「AIがテストをすること」ではない。**どのテストを、どの変更に対して、いつ実行するかが未定義なこと**である。
 
-この記事では、この「AIの過剰検証（Over-testing）」を防ぎ、最小限のコストと最高速で開発を進めるためのオープンソースキット **`ai-agent-optimization-kit`** の使い方と実務ハックを解説します。
+本稿では、Kanau Techが公開した [AI-Driven Development Optimization Kit](https://github.com/kanautech/ai-agent-optimization-kit) を用いて、AIエージェントの自律性を潰さずに過剰検証を抑える方法を説明する。
 
----
+## 対象ツールと前提
 
-## 1. 根本原因：なぜAIは無駄なテストを量産するのか？
-Sol等のFrontierモデルは、非常に高い内省的推論能力を持つ反面、「完璧にテストしなければならない」というバイアスを持っています。人間側が適切な制約（Guardrails）を与えないと、エージェントは利用可能な計算資源とクォータを使い果たすまで無限の最適化を試みます [1]。
+| ツール | 公式上の位置付け | 本稿での扱い |
+|---|---|---|
+| Codex | OpenAIのソフトウェアエンジニアリング向けAIコーディングエージェント。 | エディタ・CLI・クラウド実行でのテスト範囲を制御する。 |
+| Cursor | エージェント型コーディング環境。 | プロジェクト指示とエージェント実行の境界を定義する。 |
+| Google Antigravity | エージェントファーストの開発プラットフォーム。 | 複数エージェントやバックグラウンド作業の資源上限を定義する。 |
 
-特に**非機能要件（NFRs）の過剰検証**は、初期開発フェーズにおける最大のボトルネックです。
+各製品は別のサービスであり、同一モデルや同一の設定機構ではない。そのため、以下のテンプレートは**汎用原則**であり、各製品の公式ルール機構に合わせて移植する。
 
----
+## まず実装するべき5つのガードレール
 
-## 2. 解決策：Ablation（引き算）とガードレールの導入
-AnthropicのClaude Code開発チームが実証したように、最新AIモデルの性能を引き出す鍵は、指示を増やす「足し算」ではなく、不要なルールを削ぎ落す**「引き算（Ablation）」**にあります [6]。プロンプトの80%を削除し、モデル自身に「目的」のみを与えて最短ルートを探索させることで、思考の窒息を防ぎます [6]。
+### 1. Smallest Test First
 
-### キットの構成
-Kanautechが公開した OSS キットには、以下のファイルが含まれています。
-- `AGENTS.md`: 最小限のテスト原則（Smallest Test First）と Unhobbling 思想に基づく行動階層。
-- `GUARDRAILS.md`: NFR過剰検証の禁止、リトライ上限、サーキットブレーカーによる安全階層。
+変更した関数・モジュールに直接関連する単体テスト、型検査、lintから始める。統合テストへ広げるのは、モジュール境界・永続化・外部APIなどを実際に跨いだときだけにする。
 
----
+```markdown
+- Start with linting, type-checking, and the smallest test directly related to the change.
+- Expand to integration tests only when the change crosses a module or service boundary.
+- Reserve the full test suite for PR merge or release gates.
+```
 
-## 3. 実際の導入手順（5分で完了）
+### 2. NFRは明示的な人間判断で開始する
 
-1. **リポジトリの取得と配置**
-   GitHubの [kanautech/ai-agent-optimization-kit](https://github.com/kanautech/ai-agent-optimization-kit) から `AGENTS.md` と `GUARDRAILS.md` をプロジェクトのルートディレクトリにコピーします。
+性能・負荷・ストレス・レースコンディション・侵入テストは、機能実装の副産物として自動開始してはいけない。開始前に、対象環境、シナリオ、合格基準、許容資源を人間が決める。
 
-2. **既存指示のクリーンアップ**
-   既存の長大な `CLAUDE.md` や指示ファイルから、旧世代向けの細かい手順指定を80%削減します [6]。
+```markdown
+- Do not start load, stress, race, or full E2E tests by default.
+- Require an explicit request specifying target environment, workload, acceptance criteria, and budget.
+```
 
-3. **エージェントへの認識**
-   起動時に以下のプロンプトを投げます。
-   > `"ルートディレクトリの AGENTS.md と GUARDRAILS.md に従い、最小限のテストファーストとNFR過剰検証の回避を厳守してください。"`
+### 3. 同一失敗のリトライに上限を設ける
 
----
+同じテストが連続失敗しているなら、追加の再試行は証拠を増やさない。3回を上限に止め、ログ、再現手順、仮説を提示させる。
 
-## 4. まとめ
-AI駆動開発の成否は「AIをどれだけ縛るか」ではなく「AIの知能を正しく解放し、適切なガードレールで守るか」にかかっています。ぜひ本キットを導入し、快適なAIコーディング環境を手に入れてください！
+```markdown
+- After 3 consecutive failures of the same test, stop.
+- Report the failing command, error output, environment facts, and root-cause hypothesis.
+- Do not modify assertions merely to make the suite green.
+```
 
-- **GitHub Repository**: [kanautech/ai-agent-optimization-kit](https://github.com/kanautech/ai-agent-optimization-kit)
+### 4. 並列化は許可制にする
 
----
-## 参考文献
-[1] Viet Tran. (2026). *AI駆動開発におけるテスト駆動開発と非機能要件の過剰検証に関する考察*. Facebook.  
-[6] Boris Cherny. (2026). *We Cut 80% of Claude Code's Prompt*. YouTube / Y Combinator.
+複数のエージェントやテストワーカーを利用できる環境では、並列化がCPU・メモリ・ポート競合・テストデータ競合を引き起こす。初期値を逐次実行にし、独立性が確認できるときだけ並列化する。
+
+### 5. 終了時のプロセス後始末をルール化する
+
+ブラウザ、開発サーバー、ワーカー、コンテナが残ると、後続タスクの失敗原因になる。実行したプロセスを記録し、成功・失敗のどちらでも終了確認を行う。
+
+## 導入手順
+
+リポジトリのルートにテンプレートを配置する。
+
+```bash
+curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/AGENTS.md -o AGENTS.md
+curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/GUARDRAILS.md -o GUARDRAILS.md
+```
+
+次に、使用中のCodex、Cursor、Antigravity、Claude Code等がプロジェクト内の指示ファイルを認識するかを確認する。認識しない場合は、各製品の公式ルール設定へ内容を移植する。テンプレートの数値上限（例：リトライ3回、最大並列数2）は初期値であり、CIの所要時間、CPU、失敗率、開発者体験を測定して調整する。
+
+## 数字の扱いを間違えない
+
+「プロンプトを何%削除すれば速くなる」「CPUを何%削減できる」といった数字は、製品横断の保証値ではない。モデル、リポジトリ規模、依存関係、テスト構成、実行権限によって結果が変わる。導入効果は、代表タスクを使い、導入前後で次の値を測って判断する。
+
+| 指標 | 測定方法 |
+|---|---|
+| 変更から最初の有効なフィードバックまでの時間 | lint・型検査・対象単体テストの完了時間を記録する。 |
+| 1タスクあたりのテスト実行回数 | テストコマンド履歴から集計する。 |
+| 同一障害の連続リトライ数 | 同じ失敗シグネチャの連続回数を数える。 |
+| 残留プロセス数 | タスク終了時にワーカー・ブラウザ・サーバーを確認する。 |
+
+本キットはAIの能力を制限するためではなく、テストを**正しい層、正しいタイミング、正しい範囲**に戻すためのテンプレートである。
+
+## リンク
+
+- [Kanau Tech / AI-Driven Development Optimization Kit](https://github.com/kanautech/ai-agent-optimization-kit)
+
+## 参考資料
+
+[1] [OpenAI: Codex](https://openai.com/codex/)（取得日: 2026-08-17）  
+[2] [Cursor: AI Coding Agent](https://cursor.com/)（取得日: 2026-08-17）  
+[3] [Google Antigravity](https://antigravity.google/)（取得日: 2026-08-17）

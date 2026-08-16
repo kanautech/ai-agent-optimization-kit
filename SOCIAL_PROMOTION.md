@@ -1,33 +1,44 @@
-# SNS・コミュニティ拡散用告知文案（多言語）
+# SNS・コミュニティ拡散用告知文案
 
-## 1. 🇯🇵 X (旧Twitter) 向け投稿文案
-> 【新着OSS公開】Claude CodeやSolなどのAIエージェントがテストの無限ループに陥り、CPUが99%に張り付いたりトークンクォータが数時間で枯渇する問題を防ぐ「AI駆動開発最適化キット」を公開しました！
-> 
-> AnthropicのUnhobbling思想に基づく「引き算の美学」でAIの知能を解放しつつ、過剰なNFR検証をブロックします。
-> 
-> 🛠️ GitHub: https://github.com/kanautech/ai-agent-optimization-kit
-> #ClaudeCode #AIコーディング #TDD #KanauTech
+公開リンクを投稿直前に差し替えること。数値改善や特定製品の挙動は、再現可能な自社測定結果がない限り断定しない。
 
----
+## 日本語 — X / LinkedIn
 
-## 2. 🌐 English (X / LinkedIn) Promotion Draft
-> 🚀 Released as OSS: AI-Driven Development Optimization Kit!
-> 
-> Are your AI coding agents (Claude Code, Codex, Sol) getting stuck in endless test loops, burning your token quota, and maxing out your CPU? 
-> 
-> Based on Anthropic's "Unhobbling" philosophy, our kit cuts prompt bloating and blocks over-testing of NFRs while unlocking pure agent intelligence.
-> 
-> 🛠️ GitHub: https://github.com/kanautech/ai-agent-optimization-kit
-> #AI #ClaudeCode #TDD #SoftwareEngineering #KanauTech
+> 【OSS公開】Codex、Cursor、Google Antigravity、Claude CodeなどのAIコーディングエージェント向けに、過剰なE2E・負荷・レーステストや無制限リトライを防ぐ **AI-Driven Development Optimization Kit** を公開しました。
+>
+> 狙いはAIを弱くすることではありません。変更に対して、正しいテストを、正しい層・タイミングで実行するためのガードレールです。
+>
+> `AGENTS.md` と `GUARDRAILS.md`、導入ガイド、検証プロトコルを収録しています。
+>
+> GitHub: https://github.com/kanautech/ai-agent-optimization-kit
+> Kanau Tech Blog: <公開URL>
+>
+> #Codex #Cursor #GoogleAntigravity #ClaudeCode #TDD #AICoding #KanauTech
 
----
+## English — X / LinkedIn
 
-## 3. 🇻🇳 Tiếng Việt (Facebook / LinkedIn) Promotion Draft
-> 🚀 Phát hành mã nguồn mở: Bộ công cụ tối ưu hóa phát triển phần mềm bằng AI (AI-Driven Development Optimization Kit)!
-> 
-> Các trợ lý AI (Claude Code, Sol) của bạn có đang mắc kẹt trong vòng lặp kiểm thử vô tận, cạn kiệt hạn mức token và làm quá tải CPU?
-> 
-> Dựa trên triết lý "Unhobbling" của Anthropic, bộ công cụ này giúp cắt giảm prompt dư thừa, ngăn chặn việc kiểm tra NFR quá mức và giải phóng tối đa sức mạnh của AI.
-> 
-> 🛠️ GitHub: https://github.com/kanautech/ai-agent-optimization-kit
-> #AI #ClaudeCode #TDD #KanauTech
+> We have open-sourced the **AI-Driven Development Optimization Kit** for agentic development environments such as Codex, Cursor, Google Antigravity, and Claude Code.
+>
+> It is designed to prevent unscoped full E2E/load/race testing and blind retry loops—without removing an agent’s ability to solve engineering problems autonomously.
+>
+> The goal is simple: run the right test, at the right layer, at the right time.
+>
+> GitHub: https://github.com/kanautech/ai-agent-optimization-kit
+> Kanau Tech Blog: <PUBLIC_URL>
+>
+> #Codex #Cursor #GoogleAntigravity #ClaudeCode #TDD #AICoding #SoftwareEngineering
+
+## Tiếng Việt — Facebook / LinkedIn
+
+> Kanautech vừa phát hành mã nguồn mở **AI-Driven Development Optimization Kit** dành cho các môi trường phát triển có tác tử AI như Codex, Cursor, Google Antigravity và Claude Code.
+>
+> Bộ công cụ giúp ngăn việc tự động chạy E2E, tải, stress hoặc race test ngoài phạm vi yêu cầu; đồng thời chặn vòng lặp retry mù quáng. Mục tiêu không phải là làm AI kém tự chủ, mà là chạy **đúng bài test, đúng tầng, đúng thời điểm**.
+>
+> GitHub: https://github.com/kanautech/ai-agent-optimization-kit
+> Kanau Tech Blog: <PUBLIC_URL>
+>
+> #Codex #Cursor #GoogleAntigravity #ClaudeCode #TDD #AICoding #KanauTech
+
+## コミュニティ投稿の注意
+
+各コミュニティのルールに従い、投稿本文では外部リンクのみを目的にしない。対象ツールごとの導入差、検証プロトコル、具体的な失敗モードなど、読者が持ち帰れる技術的価値を添える。
