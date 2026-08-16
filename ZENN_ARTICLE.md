@@ -1,3 +1,11 @@
+---
+title: "Claude Codeの性能を80%のプロンプト削除で引き出す：「引き算の美学」とTDDガードレール戦略"
+emoji: "🚀"
+type: "tech" # tech: 技術記事 / idea: アイデア
+topics: ["ClaudeCode", "AI", "TDD", "PromptEngineering", "LLM"]
+published: true
+---
+
 # Claude Codeの性能を80%のプロンプト削除で引き出す：「引き算の美学」とTDDガードレール戦略
 
 ## はじめに

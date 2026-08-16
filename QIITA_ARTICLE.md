@@ -1,3 +1,8 @@
+---
+title: 【Claude Code / Codex】AIエージェントの暴走とクォータ枯渇を防ぐ！TDD最適化キットの導入術
+tags: AI, ClaudeCode, TDD, 生産性向上, ガードレール
+---
+
 # 【Claude Code / Codex】AIエージェントの暴走とクォータ枯渇を防ぐ！TDD最適化キットの導入術
 
 ## はじめに
