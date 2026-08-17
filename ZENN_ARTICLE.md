@@ -1,48 +1,68 @@
 ---
-title: "Claude CodeのHooksで実装するTDDガバナンス：自律性を保ち、過剰検証を止める"
-emoji: "🪝"
+title: "Claude Codeの自律性を壊さないTDDガバナンス：CLAUDE.mdとHooksの設計原則"
+emoji: "🧭"
 type: "tech"
-topics: ["claudecode", "anthropic", "tdd", "agent", "testing"]
+topics: ["claudecode", "anthropic", "aiagent", "testing", "devex"]
 published: false
 ---
 
-# Claude CodeのHooksで実装するTDDガバナンス：自律性を保ち、過剰検証を止める
+# Claude Codeの自律性を壊さないTDDガバナンス：CLAUDE.mdとHooksの設計原則
 
-AIコーディングエージェントを扱うとき、ルールをプロンプトに書けば統制できるという前提は脆い。特にClaude Codeは、プロジェクト内のファイルを読み書きし、Bashコマンドを実行し、テストやブラウザ操作までを自律タスクとして進められる。自然言語の依頼だけに依存するなら、どのテストを走らせるか、いつ止めるか、何を保護するかはLLMの判断に委ねられる。
+Claude Codeの価値は、コード補完の精度だけではない。リポジトリを読み、変更を計画し、ファイルを編集し、テストを実行し、必要に応じてブラウザやCLIを使う。この一連の実行能力があるからこそ、AIコーディングの設計対象は「プロンプト」から**実行ガバナンス**へ移る。
 
-Claude Codeには、この問題を解く公式の手段がある。**Hooks**である。HooksはClaude Codeのライフサイクル上の特定時点でユーザー定義のコマンドを実行し、LLMの任意判断ではなく決定論的に検証・ブロック・記録を行える [1]。
+本稿が扱う問いは単純である。
 
-本稿では、Kanau Techが公開した [Claude Code TDD Guardrails Kit](https://github.com/kanautech/ai-agent-optimization-kit) の設計を通じて、Claude Codeの自律性とTDDガバナンスを両立させる方法を説明する。
+> Claude Codeに実装・調査・局所デバッグの裁量を残しながら、負荷試験、フルE2E、無制限リトライ、プロセス残留のような高コスト操作を、どう統制するか。
 
-## プロンプトとHooksを混同しない
+Kanau Techの [Claude Code TDD Guardrails Kit](https://github.com/kanautech/ai-agent-optimization-kit) は、この問いに対して `CLAUDE.md` とClaude Code Hooksを役割分担させる。
 
-| 層 | Claude Codeでの実装 | 向いている判断 |
+## 自然言語のルールだけでは統制できない理由
+
+次の依頼を考える。
+
+```text
+この機能を実装して、必要なテストをして。
+```
+
+この文は目的を伝えているが、実行境界を伝えていない。「必要なテスト」は、対象単体テスト、統合テスト、ブラウザE2E、性能試験、負荷試験のどこまでを含むのか。失敗が続いた場合に、何回まで再試行してよいのか。外部サービスや本番相当データへ触れてよいのか。
+
+Claude Codeの振る舞いを個別モデルの性質として語るのは不正確である。問題は、実行可能なツールと権限が与えられたエージェントへ、プロジェクト固有のリスク境界を与えないことにある。
+
+| 境界がない判断 | 起こり得る実行 | 失われるもの |
 |---|---|---|
-| Intent Layer | `CLAUDE.md` | 目的、変更範囲、完了条件、テスト方針。 |
-| Safety Layer | `.claude/settings.json` と `PreToolUse` Hook | 危険なコマンド、保護対象、NFRの開始条件。 |
-| Feedback Layer | `PostToolUse` / `Stop` / `Notification` Hook | 実行証跡、失敗根拠、終了通知、後始末。 |
+| テスト範囲 | 局所変更から広範な統合・E2Eへ拡張する。 | 初回フィードバックの速度。 |
+| NFR開始条件 | 負荷・レース・ストレス検証を開始する。 | 実行資源と結果の解釈可能性。 |
+| 停止条件 | 同じ失敗を反復する。 | 時間と原因分析の質。 |
+| 後始末 | サーバー、ワーカー、ブラウザが残る。 | 後続タスクの再現性。 |
 
-`CLAUDE.md` は「何を達成したいか」をClaudeに伝える。Hooksは「何を実行させないか」「何を必ず記録するか」を担保する。両者を混ぜると、重要な安全境界まで確率的な指示追従へ委ねることになる。
+## 3層アーキテクチャ：Intent / Safety / Feedback
 
-## NFRを実装ループから分離する
+本キットは、意思決定を3層に分ける。
 
-次のような依頼は判断境界が足りない。
+### Intent Layer：`CLAUDE.md`
 
-> 「この機能を実装して、十分にテストして。」
+Intent Layerは、Claude Codeに解法を細かく指定する場所ではない。何を変更するか、何を完了とするか、どのテスト層から始めるかを高シグナルに記述する。
 
-十分とは何か。単体テストか、統合テストか、ブラウザE2Eか、負荷試験か。MVPのローカル環境でレースコンディションまで検証するのか。合格基準は何か。結果を誰が解釈するのか。
+```markdown
+## Default Test Strategy
 
-NFRは機能実装の自動的な副産物ではない。性能、負荷、ストレス、レース、セキュリティ検証を始めるには、少なくとも次の5項目が必要である。
+1. Start with linting, type-checking, and the smallest test directly related to the change.
+2. Expand to integration tests only when the change crosses a module, persistence, network, or service boundary.
+3. Reserve the full suite for an explicit PR, release, or CI gate request.
+```
 
-1. 対象環境。
-2. ワークロードまたは攻撃シナリオ。
-3. 合格基準。
-4. 時間・並列度・インフラの資源予算。
-5. 結果を解釈し次の判断を行う人間の責任者。
+このルールが与えるのは、手順書ではなく判断の優先順位である。Claude Codeは実装・調査・局所デバッグの方法を選べるが、検証を広げる条件は明確になる。
 
-## `PreToolUse` Hookで実行前に止める
+### Safety Layer：`PreToolUse` Hook
 
-Claude Codeの `PreToolUse` Hookは、Bash、Edit、Writeなどの実行前にコマンドを検査できる。キットの `pre_tool_guard.py` は、対象指定のないフルテスト、NFRテストツール、広範なブラウザテストを検出し、明示承認がない限りブロックする。
+Safety Layerは、曖昧さを残してはいけない操作を扱う。Claude CodeのHooksは、ライフサイクルの特定時点でユーザー定義コマンドを実行できるため、LLMの任意判断に依存せずにコマンド検査やブロックを実装できる。[1]
+
+`PreToolUse` HookをBashに設定し、次のような操作を実行前に判定する。
+
+- 対象を指定しない `npm test`、`pytest` などのフルテスト。
+- `k6`、`locust`、`artillery`、`wrk` などを用いた負荷テスト。
+- 絞り込みのないブラウザE2E。
+- プロジェクトで定義した危険な削除、デプロイ、本番アクセス。
 
 ```json
 {
@@ -62,21 +82,59 @@ Claude Codeの `PreToolUse` Hookは、Bash、Edit、Writeなどの実行前に�
 }
 ```
 
-ブロックは絶対的な禁止ではない。対象環境、合格基準、予算、責任者が明確な場合に限り、単発の承認として `ALLOW_NFR_TESTS=1` を付けて実行する。恒久的な環境変数にしてはいけない。
+ここでの原則は「広範テストは悪」ではない。NFRやフルスイートには、対象環境、ワークロード、合格基準、資源予算、責任者という人間の判断が必要である、ということだ。
 
-## `PostToolUse` Hookで証拠を残す
+### Feedback Layer：`PostToolUse`、Stop、CI
 
-実行後は、コマンドと結果を記録する。これは監視のためだけではない。連続失敗が起きたとき、同じコマンドを繰り返すのではなく、実行履歴とエラー証拠から根本原因を切り分けるためである。
+Feedback Layerでは、実行後の事実を残す。連続失敗が発生したとき、価値があるのは再試行の回数ではなく、失敗コマンド、標準エラー、環境情報、根本原因仮説である。
 
-さらに、プロジェクト固有のHookを追加して、Claude Codeが開始した開発サーバー、ワーカー、ブラウザの後始末を実装する。ただし、汎用的な `pkill` をHookへ入れてはならない。人間や他のタスクが開始したプロセスを誤って停止させるからである。
+`PostToolUse` HookでBash実行のJSON入力をJSONLへ追記すれば、どのコマンドがいつ使われたかを追跡できる。さらに、プロジェクト固有のStop HookやCIで、残留プロセスの確認、テスト要約、失敗エビデンスの保存を実装する。
 
-## 効果の評価は実測で行う
+> 重要な制約はLLMへの依頼ではなく、Hook・CI・サンドボックスという決定論的な層で実装する。
 
-「Hooksを入れればコストが何%下がる」と約束するべきではない。測るべきは、初回フィードバック時間、テスト実行回数、同一失敗の連続回数、残留プロセス、PRでの回帰検出率である。代表タスクを固定した導入前後比較によって、チームの設定が自律性を壊さず、無駄な反復を減らしているかを判断する。
+## NFRの明示承認は「例外」ではなく責任分界
 
-Codex、Cursor、Google Antigravityにも同じ原則は応用できる。しかし本キットはClaude Codeの `CLAUDE.md`、`.claude/settings.json`、Hooksを主対象に設計している。他の環境では、公式のルール・フック・CI機構に同じ境界を再実装すること。
+負荷・性能・セキュリティの検証を行わない、という主張ではない。むしろ、それらは重要だからこそ、機能実装の副産物として無目的に実行してはいけない。
+
+| 必要な情報 | なぜ必要か |
+|---|---|
+| 対象環境 | 本番影響、データ、ネットワーク条件を明確にする。 |
+| シナリオ | 何を再現し、何を検証するかを固定する。 |
+| 合格基準 | p95、エラー率、整合性など、結果を判定可能にする。 |
+| 資源予算 | 実行時間、並列数、インフラ費用を制御する。 |
+| 責任者 | 失敗・成功後の意思決定を担う人を明確にする。 |
+
+これらが満たされた場合だけ、`ALLOW_NFR_TESTS=1` のような単発許可でHookを通す。恒久的な許可に変えれば、設計したSafety Layerは形骸化する。
+
+## ガードレールの評価は、削減率ではなく品質と再現性で行う
+
+「Hookを入れればトークンやCPUが何%減る」といった数字を一般化してはいけない。効果は、リポジトリ規模、テスト構成、Claude Codeの設定、CI、チームの運用で変わる。
+
+導入の評価には、代表タスクを固定した前後比較が必要である。
+
+| KPI | 目的 |
+|---|---|
+| 初回フィードバック時間 | 最小テスト戦略が開発ループを妨げていないかを見る。 |
+| テスト実行回数 | 失敗に対する無目的な反復を検出する。 |
+| 同一エラーの連続回数 | サーキットブレーカーの妥当性を確認する。 |
+| 残留プロセス | 後続タスクを汚染していないかを見る。 |
+| PR・リリース時の回帰 | テスト範囲を絞っても品質を毀損していないかを確認する。 |
+
+## Claude Code以外への適用
+
+Codex、Cursor、Google Antigravityなどにも、この設計原則は応用できる。しかし、このキットはClaude Codeの `CLAUDE.md`、`.claude/settings.json`、Hooksを主対象に実装している。他の環境では、ファイルをコピーするのではなく、各製品が提供する公式のルール、Hook、権限、CI機構へ同じ判断境界を移植するべきである。
+
+## 結論
+
+Claude Codeの自律性を活かすことと、実行を統制することは対立しない。実装・調査・局所デバッグには裁量を残す。NFR、広範テスト、資源予算、停止条件には明示的な人間判断を置く。その役割分担を `CLAUDE.md` とHooksで実装する。
+
+**Right Test. Right Layer. Right Time.**
+
+- [Claude Code TDD Guardrails Kit](https://github.com/kanautech/ai-agent-optimization-kit)
+- [導入・検証・ロールバック手順](https://github.com/kanautech/ai-agent-optimization-kit/blob/master/CLAUDE_CODE_INTEGRATION.md)
 
 ## 参考資料
 
-[1] [Claude Code: Automate actions with hooks](https://code.claude.com/docs/en/hooks-guide)（取得日: 2026-08-17）  
-[2] [Claude Code: Settings](https://code.claude.com/docs/en/settings)（取得日: 2026-08-17）
+[1] [Claude Code Docs: Automate actions with hooks](https://code.claude.com/docs/en/hooks-guide)（取得日: 2026-08-17）  
+[2] [Claude Code Docs: Settings](https://code.claude.com/docs/en/settings)（取得日: 2026-08-17）  
+[3] [Claude Code Docs: How Claude remembers your project](https://code.claude.com/docs/en/memory)（取得日: 2026-08-17）

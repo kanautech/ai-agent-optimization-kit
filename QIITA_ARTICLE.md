@@ -1,95 +1,186 @@
 ---
-title: "Claude CodeのHooksで過剰テストを防ぐ：TDDガードレール導入術"
-tags: ClaudeCode, Anthropic, AI, TDD, 生産性向上
+title: "Claude CodeのHooksで『対象なしフルテスト』を止める：TDDガードレール実装ガイド"
+tags: ClaudeCode, Anthropic, TDD, Testing, AIAgent
+private: false
+updated_at: "2026-08-17"
 ---
 
-# Claude CodeのHooksで過剰テストを防ぐ：TDDガードレール導入術
+# Claude CodeのHooksで「対象なしフルテスト」を止める：TDDガードレール実装ガイド
 
-Claude Codeは、コード編集だけでなく、ターミナル、テスト、ブラウザ操作を組み合わせてタスクを実行できる。その自律性を開発速度と品質へつなげるには、`CLAUDE.md` の行動原則だけでは不十分である。Claude Code公式のHooksを使い、実行前後のライフサイクルで決定論的な制約を置く必要がある [1]。
+Claude Codeに「実装してテストして」と頼んだとき、対象の単体テストで止まるか、リポジトリ全体のテストやブラウザE2Eまで広がるかは、依頼文、プロジェクト文脈、利用可能なコマンドに左右される。ここで必要なのは、AIに「慎重に」と頼むことではない。**どの操作をClaude Codeが自律的に実行してよいかを、プロジェクト側で決めること**である。
 
-例えば、ユーティリティ関数の変更に対してフルE2E、負荷、並行性テストまで始めるなら、品質向上ではなく開発ループを遅くする。問題は「Claude Codeがテストをすること」ではない。**どのテストを、どの変更に対して、いつ実行するかが未定義なこと**である。
+Claude Codeには、ライフサイクル上の特定時点でユーザー定義コマンドを実行するHooksがある。`PreToolUse` Hookを使えば、Bash実行の直前にコマンドを検査し、対象なしのフルテストや未承認の負荷テストをブロックできる。[1]
 
-本稿では、Kanau Techが公開した [AI-Driven Development Optimization Kit](https://github.com/kanautech/ai-agent-optimization-kit) を用いて、AIエージェントの自律性を潰さずに過剰検証を抑える方法を説明する。
+この記事では、Kanau Techの [Claude Code TDD Guardrails Kit](https://github.com/kanautech/ai-agent-optimization-kit) を基に、`CLAUDE.md` とHooksで「最小関連テストから始める」ルールを実装する。
 
-## 対象ツールと前提
+## 結論：プロンプトとHooksを役割分担させる
 
-| Claude Codeの構成要素 | 本稿での扱い |
+| 役割 | 実装場所 | 例 |
+|---|---|---|
+| Claude Codeに判断を伝える | `CLAUDE.md` | 「変更に直接関係する最小テストから開始する」 |
+| 実行前に機械的に止める | `PreToolUse` Hook | `npm test`、`k6 run`、広範なE2Eを検出してブロックする。 |
+| 実行後の証拠を残す | `PostToolUse` Hook | 実行されたBashコマンドをJSONLへ記録する。 |
+| 品質を最終判定する | CI | PR・リリースゲートでフルスイートを実行する。 |
+
+`CLAUDE.md` は指示であり、Hooksは強制力を持つ実行境界である。この二つを混同すると、「止めたい操作」をLLMの確率的な判断に委ねることになる。
+
+## 1. `CLAUDE.md` にテスト方針と停止条件を書く
+
+リポジトリルートに `CLAUDE.md` を置き、まず以下のような原則を定義する。
+
+```markdown
+## Default Test Strategy
+
+1. Read the affected code and existing tests before modifying files.
+2. Start with linting, type-checking, and the smallest test directly related to the change.
+3. Expand to integration tests only when the change crosses a module, persistence, network, or service boundary.
+4. Reserve the full suite for an explicit PR, release, or CI gate request.
+
+## Failure Handling
+
+- Never retry the same failing test blindly.
+- After three consecutive failures with the same failure signature, stop execution.
+- Preserve the failing command, error output, relevant environment facts, and a root-cause hypothesis.
+```
+
+ここでの目的は、Claude Codeの実装やデバッグ手順を過剰に固定することではない。目的、変更範囲、テストの拡張条件、停止条件だけを明示する。
+
+## 2. Hookを登録する
+
+プロジェクトに `.claude/settings.json` を作成する。既存の `hooks` 設定がある場合は、オブジェクト全体を置換せず、`PreToolUse` と `PostToolUse` を追加する。
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_tool_guard.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_tool_audit.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Claude Codeでは `/hooks` により、設定済みHookの登録状況を確認できる。[1]
+
+## 3. `PreToolUse` Hookで広範なテストを判定する
+
+次のPythonスクリプトは、Hookから標準入力として渡されるJSONを読み、Bashコマンドを判定する最小例である。
+
+```python
+#!/usr/bin/env python3
+import json
+import os
+import re
+import sys
+
+payload = json.load(sys.stdin)
+command = payload.get("tool_input", {}).get("command", "")
+normalized = command.lower()
+
+nfr_patterns = [
+    r"\bk6\b", r"\blocat\b", r"\blocust\b", r"\bartillery\b",
+    r"\bwrk\b", r"\bvegeta\b", r"--race\b",
+    r"playwright\s+test(?!\s+[^\n]*--grep)",
+    r"cypress\s+run(?!\s+[^\n]*--spec)",
+]
+broad_test_patterns = [
+    r"\bnpm\s+test\s*$", r"\bpnpm\s+test\s*$",
+    r"\byarn\s+test\s*$", r"\bpytest\s*$",
+]
+
+if os.getenv("ALLOW_NFR_TESTS") == "1":
+    sys.exit(0)
+
+if any(re.search(p, normalized) for p in nfr_patterns + broad_test_patterns):
+    print(
+        "Blocked: run the smallest relevant test first. "
+        "NFR/full-suite runs require explicit approval.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
+sys.exit(0)
+```
+
+`exit 2` はHookのブロックに使う。ブロックのメッセージはClaude Codeへ返されるため、「何が足りないか」を具体的に説明する。プロジェクトごとに利用しているテストツールへパターンを調整すること。
+
+## 4. NFRテストは「明示承認」の単発例外にする
+
+負荷、ストレス、レース、セキュリティ、フルE2Eを禁止するわけではない。問題は、対象や合格基準がないまま実装タスクの副産物として始めることである。
+
+NFRを実行する前に、次の項目をIssue、PR、または運用チケットへ残す。
+
+| 項目 | 例 |
 |---|---|
-| `CLAUDE.md` | 目的、変更範囲、完了条件、最小テスト優先の原則を置く。 |
-| `.claude/settings.json` | Hooksを登録し、実行前後の制約を構成する。 |
-| `PreToolUse` Hook | 広範なテストや未承認NFR操作を実行前にブロックする。 |
-| `PostToolUse` Hook | コマンド証跡を記録し、失敗時の根拠を残す。 |
+| 対象環境 | staging、固定データセット、隔離DB。 |
+| シナリオ | 10 VUで30秒、特定APIへ一定割合の書込み。 |
+| 合格基準 | p95、エラー率、データ整合性、許容リソース。 |
+| 実行予算 | 最大5分、並列数、利用可能な環境。 |
+| 責任者 | 結果を解釈し、次の改善を決める担当者。 |
 
-本稿の主対象はClaude Codeである。Codex、Cursor、Google Antigravityは、同じ原則を応用できる補助的な適用先として扱うが、設定形式やHook機構は異なるため、このテンプレートをそのまま移植してはいけない。
-
-## まず実装するべき5つのガードレール
-
-### 1. Smallest Test First
-
-変更した関数・モジュールに直接関連する単体テスト、型検査、lintから始める。統合テストへ広げるのは、モジュール境界・永続化・外部APIなどを実際に跨いだときだけにする。
-
-```markdown
-- Start with linting, type-checking, and the smallest test directly related to the change.
-- Expand to integration tests only when the change crosses a module or service boundary.
-- Reserve the full test suite for PR merge or release gates.
-```
-
-### 2. NFRは明示的な人間判断で開始する
-
-性能・負荷・ストレス・レースコンディション・侵入テストは、機能実装の副産物として自動開始してはいけない。開始前に、対象環境、シナリオ、合格基準、許容資源を人間が決める。
-
-```markdown
-- Do not start load, stress, race, or full E2E tests by default.
-- Require an explicit request specifying target environment, workload, acceptance criteria, and budget.
-```
-
-### 3. 同一失敗のリトライに上限を設ける
-
-同じテストが連続失敗しているなら、追加の再試行は証拠を増やさない。3回を上限に止め、ログ、再現手順、仮説を提示させる。
-
-```markdown
-- After 3 consecutive failures of the same test, stop.
-- Report the failing command, error output, environment facts, and root-cause hypothesis.
-- Do not modify assertions merely to make the suite green.
-```
-
-### 4. 並列化は許可制にする
-
-複数のエージェントやテストワーカーを利用できる環境では、並列化がCPU・メモリ・ポート競合・テストデータ競合を引き起こす。初期値を逐次実行にし、独立性が確認できるときだけ並列化する。
-
-### 5. 終了時のプロセス後始末をルール化する
-
-ブラウザ、開発サーバー、ワーカー、コンテナが残ると、後続タスクの失敗原因になる。実行したプロセスを記録し、成功・失敗のどちらでも終了確認を行う。
-
-## 導入手順
-
-リポジトリのルートにテンプレートを配置する。
+条件が満たされた単発の実行にだけ、`ALLOW_NFR_TESTS=1` を付与する。
 
 ```bash
-curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/AGENTS.md -o AGENTS.md
-curl -L https://raw.githubusercontent.com/kanautech/ai-agent-optimization-kit/master/GUARDRAILS.md -o GUARDRAILS.md
+ALLOW_NFR_TESTS=1 k6 run --vus 10 --duration 30s tests/load/smoke.js
 ```
 
-次に、使用中のCodex、Cursor、Antigravity、Claude Code等がプロジェクト内の指示ファイルを認識するかを確認する。認識しない場合は、各製品の公式ルール設定へ内容を移植する。テンプレートの数値上限（例：リトライ3回、最大並列数2）は初期値であり、CIの所要時間、CPU、失敗率、開発者体験を測定して調整する。
+これは恒久的な環境変数にしてはいけない。例外が既定値になれば、ガードレールは消える。
 
-## 数字の扱いを間違えない
+## 5. `PostToolUse` Hookで実行証跡を残す
 
-「プロンプトを何%削除すれば速くなる」「CPUを何%削減できる」といった数字は、製品横断の保証値ではない。モデル、リポジトリ規模、依存関係、テスト構成、実行権限によって結果が変わる。導入効果は、代表タスクを使い、導入前後で次の値を測って判断する。
+連続失敗が起きたときに必要なのは、もう一度同じコマンドを走らせることではない。何を実行したか、どのエラーが出たか、環境がどうだったかという証拠である。
 
-| 指標 | 測定方法 |
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+AUDIT_DIR="${CLAUDE_PROJECT_DIR}/.claude/audit"
+mkdir -p "${AUDIT_DIR}"
+cat >> "${AUDIT_DIR}/bash-commands.jsonl"
+```
+
+汎用的な `pkill` を後始末Hookに入れるのは避ける。他の開発者や別タスクが開始したプロセスまで停止するおそれがある。後始末は、Claude Codeが開始したプロセスだけを識別できるプロジェクト固有の仕組みで実装する。
+
+## 6. 導入後に測るもの
+
+「Hooksでトークンが何%減る」といった数字を先に約束するのは誤りである。モデル、リポジトリ規模、CI、テスト構成、作業内容で結果は変わる。代表タスクを固定し、導入前後を比較する。
+
+| KPI | 見るもの |
 |---|---|
-| 変更から最初の有効なフィードバックまでの時間 | lint・型検査・対象単体テストの完了時間を記録する。 |
-| 1タスクあたりのテスト実行回数 | テストコマンド履歴から集計する。 |
-| 同一障害の連続リトライ数 | 同じ失敗シグネチャの連続回数を数える。 |
-| 残留プロセス数 | タスク終了時にワーカー・ブラウザ・サーバーを確認する。 |
+| 初回フィードバック時間 | lint・型検査・対象単体テストが完了するまでの時間。 |
+| テスト実行回数 | 1タスクあたりに実行されたコマンド数。 |
+| 同一失敗の連続回数 | 同じエラーシグネチャの反復数。 |
+| 残留プロセス | サーバー、ワーカー、ブラウザの残存数。 |
+| 回帰検出率 | PR・リリースゲートで発見された回帰。 |
 
-本キットはAIの能力を制限するためではなく、テストを**正しい層、正しいタイミング、正しい範囲**に戻すためのテンプレートである。
+## まとめ
 
-## リンク
+Claude Codeの自律性を活かすには、実装・調査・局所デバッグの裁量を残し、NFR、広範テスト、資源予算、停止条件のようなリスク受容を明示する必要がある。
 
-- [Kanau Tech / AI-Driven Development Optimization Kit](https://github.com/kanautech/ai-agent-optimization-kit)
+**`CLAUDE.md` で意図を伝え、Hooksで重要な境界を実装する。**
+
+- [Claude Code TDD Guardrails Kit](https://github.com/kanautech/ai-agent-optimization-kit)
+- [詳細導入ガイド](https://github.com/kanautech/ai-agent-optimization-kit/blob/master/CLAUDE_CODE_INTEGRATION.md)
 
 ## 参考資料
 
-[1] [Claude Code: Automate actions with hooks](https://code.claude.com/docs/en/hooks-guide)（取得日: 2026-08-17）  
-[2] [Claude Code Settings](https://code.claude.com/docs/en/settings)（取得日: 2026-08-17）
+[1] [Claude Code Docs: Automate actions with hooks](https://code.claude.com/docs/en/hooks-guide)（取得日: 2026-08-17）  
+[2] [Claude Code Docs: Settings](https://code.claude.com/docs/en/settings)（取得日: 2026-08-17）
